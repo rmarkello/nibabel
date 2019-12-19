@@ -83,8 +83,9 @@ class AFNIHeaderError(HeaderDataError):
 
 
 DATA_OFFSET = 0
-TYPE_RE = re.compile(r'type\s*=\s*(string|integer|float)-attribute\s*\n')
-NAME_RE = re.compile(r'name\s*=\s*(\w+)\s*\n')
+TYPE_RE = re.compile(r'^type\s*=\s*(string|integer|float)-attribute\s*\n',
+                     re.MULTILINE)
+NAME_RE = re.compile(r'^name\s*=\s*(\w+)\s*\n', re.MULTILINE)
 
 
 def _unpack_var(var):
@@ -175,6 +176,60 @@ def _get_datatype(info):
     if bt is None:
         raise AFNIImageError('Can\'t deduce image data type.')
     return np.dtype(bo + bt)
+
+
+_head_to_niml = {
+    str: "String",
+    int: "int",
+    float: "float"
+}
+
+header = """\
+<?xml version='1.0' ?>
+<AFNI_attributes
+  self_idcode="{}"
+  NIfTI_nums="{}"
+  ni_form="{}" >\
+"""
+
+tail = """
+</AFNI_attributes>
+"""
+
+atr = """
+<AFNI_atr
+  ni_type="{ni_type}"
+  ni_dimen="{ni_dimen}"
+  atr_name="{atr_name}">
+ {atr}
+</AFNI_atr>
+"""
+
+def _key_to_atr(key, val):
+    try:
+        ni_type = _head_to_niml.get(type(val[0]))
+    except TypeError:
+        ni_type = _head_to_niml.get(type(val))
+
+    ni_dimen = "1"
+    if isinstance(val, str):
+        val = '"{}"'.format(val)
+    elif isinstance(val, list):
+        ni_dimen = str(len(val))
+        val = '\n '.join(str(f) for f in val)
+
+    return atr.format(ni_type=ni_type, ni_dimen=ni_dimen,
+                      atr_name=key, atr=val)
+
+
+def head_to_niml(fobj):
+    """
+    Converts AFNI .HEAD `fobj` into AFNI NIML format
+    """
+    head = parse_AFNI_header(fobj)
+    niml = ''.join(_key_to_atr(k, v) for k, v in head.items())
+    niml = header + niml + tail
+    return niml
 
 
 def parse_AFNI_header(fobj):
